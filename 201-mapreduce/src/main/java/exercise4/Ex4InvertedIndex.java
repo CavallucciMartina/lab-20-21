@@ -6,6 +6,7 @@ import java.util.TreeSet;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
+import org.apache.hadoop.io.IntWritable;
 import org.apache.hadoop.io.LongWritable;
 import org.apache.hadoop.io.Text;
 import org.apache.hadoop.mapreduce.Job;
@@ -18,10 +19,15 @@ public class Ex4InvertedIndex {
 
 	public static class Ex4Mapper extends Mapper<Object, Text, Text, LongWritable> {
 
-		private Text word = new Text();
+		private final Text word = new Text();
 
 		public void map(Object key, Text value, Context context) throws IOException, InterruptedException {
-			//TODO mapper code
+
+			StringTokenizer itr = new StringTokenizer(value.toString());
+			while(itr.hasMoreTokens()){
+				word.set(itr.nextToken());
+				context.write(word,(LongWritable)  key);
+			}
 		}
 	}
 
@@ -30,15 +36,19 @@ public class Ex4InvertedIndex {
 		public void reduce(Text key, Iterable<LongWritable> values, Context context)
 				throws IOException, InterruptedException {
 
-			TreeSet<Long> offsets = new TreeSet<Long>();
-
-			//TODO reducer code
+			Text result = new Text();
+			TreeSet<Long> offsets = new TreeSet<>();
+			for(LongWritable value: values) {
+				offsets.add(value.get());
+			}
+			result.set(offsets.toString());
+			context.write(key, result);
 		}
 	}
 
 	public static void main(String[] args) throws Exception {
 		Configuration conf = new Configuration();
-		Job job = Job.getInstance(conf, "Average word length by initial letter");
+		Job job = Job.getInstance(conf, "InvertedIndex");
 		job.setJarByClass(Ex4InvertedIndex.class);
 		if (args.length > 2) {
 			if (Integer.parseInt(args[2]) >= 0) {
