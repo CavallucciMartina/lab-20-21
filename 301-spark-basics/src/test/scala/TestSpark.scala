@@ -1,4 +1,4 @@
-package it.unibo.big
+//package it.unibo.big
 
 import org.apache.spark.SparkContext
 import org.apache.spark.serializer.KryoSerializer
@@ -40,7 +40,7 @@ class TestSpark {
   }
 
   @Test
-  def `Test spark context --- word count` {
+  def `Test spark context --- word count`() {
     val quotesRDD = sc.parallelize(Seq("Courage is not simply one of the virtues, but the form of every virtue at the testing point",
       "We have a very active testing community which people don't often think about when you have open source",
       "Program testing can be used to show the presence of bugs, but never to show their absence",
@@ -56,7 +56,7 @@ class TestSpark {
   }
 
   @Test
-  def `Test hive context --- table creation and summing of counts` {
+  def `Test hive context --- table creation and summing of counts`() {
     val personRDD = sc.parallelize( //
       Seq( //
         Row("ted", 42, "blue"), //
