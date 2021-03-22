@@ -1,6 +1,6 @@
 import org.apache.hadoop.conf.Configuration
 import org.apache.hadoop.fs.FileSystem
-import org.apache.spark.SparkContext
+import org.apache.spark.{HashPartitioner, SparkContext}
 import org.apache.spark.sql.SparkSession
 
 
@@ -55,18 +55,24 @@ object Exercise extends App {
   def exercise1(sc: SparkContext): Unit = {
     val rddWeather = sc.textFile("hdfs:/bigdata/dataset/weather-sample").map(WeatherData.extract)
 
+    //PARTITIONING
+    // coalasce -> minimizza traffico rete, non distribuisce su rete
+    //
+    //CACHE dopo la map in comune
+    val cachedRdd =  rddWeather
+      .filter(_.temperature<999).repartition(8)
+      // in modalità di base della shell ho 2 executor con ognuno
+      // 1 core. Buon numero da 2 a 4 partizioni per core.
+      .map(x => (x.month, x.temperature)).cache()
+
     // Average temperature for every month
-    rddWeather
-      .filter(_.temperature<999)
-      .map(x => (x.month, x.temperature))
+    cachedRdd
       .aggregateByKey((0.0,0.0))((a,v)=>(a._1+v,a._2+1),(a1,a2)=>(a1._1+a2._1,a1._2+a2._2))
       .map({case(k,v)=>(k,v._1/v._2)})
       .collect()
 
     // Maximum temperature for every month
-    rddWeather
-      .filter(_.temperature<999)
-      .map(x => (x.month, x.temperature))
+    cachedRdd
       .reduceByKey((x,y)=>{if(x<y) y else x})
       .collect()
   }
@@ -77,7 +83,7 @@ object Exercise extends App {
    */
   def exercise2(sc: SparkContext): Unit = {
     import org.apache.spark.HashPartitioner
-    val p = new HashPartitioner(8)
+    val p = new HashPartitioner(8) // memorizza il criterio di partizonamento
 
     val rddStation = sc.textFile("hdfs:/bigdata/dataset/weather-info/stations.csv").map(StationData.extract)
 
@@ -86,21 +92,24 @@ object Exercise extends App {
       .partitionBy(p)
       .cache()
       .map({case (k,v) => (k,(v.country,v.elevation))})
+    //Fare cache a metà trasformazioni ha poco senso perchè perdo rif rdd cachato, va sempre dopo trasf.
     val rddS2 = rddStation
       .keyBy(x => x.usaf + x.wban)
       .map({case (k,v) => (k,(v.country,v.elevation))})
       .cache()
       .partitionBy(p)
+    //Fare cache a metà trasformazioni ha poco senso perchè perdo rif rdd cachato, va sempre dopo trasf.
     val rddS3 = rddStation
       .keyBy(x => x.usaf + x.wban)
       .partitionBy(p)
-      .map({case (k,v) => (k,(v.country,v.elevation))})
+      .map({case (k,v) => (k,(v.country,v.elevation))})  // modifica il valore di chiave, non mantenuto p
       .cache()
     val rddS4 = rddStation
       .keyBy(x => x.usaf + x.wban)
       .map({case (k,v) => (k,(v.country,v.elevation))})
       .partitionBy(p)
       .cache()
+    // stessa op spezzata in più pezzi ma uguale alla 5
     val rddS5 = rddStation
       .map(x => (x.usaf + x.wban, (x.country,x.elevation)))
       .partitionBy(p)
@@ -128,10 +137,22 @@ object Exercise extends App {
    * @param sc
    */
   def exercise3(sc: SparkContext): Unit = {
+    import org.apache.spark.HashPartitioner
     val rddWeather = sc.textFile("hdfs:/bigdata/dataset/weather-sample").map(WeatherData.extract)
     val rddStation = sc.textFile("hdfs:/bigdata/dataset/weather-info/stations.csv").map(StationData.extract)
+    val p = new HashPartitioner(8) // memorizza il criterio di partizonamento
 
-    // TODO exercise
+    val cacheStation = rddStation.map(x => (x.usaf + x.wban, (x.country,x.elevation)))
+      .partitionBy(p) // si poteva fare anche con KeyBy
+
+    val cacheWeather = rddWeather.filter(_.temperature<999)
+      .map(x => (x.month, x.temperature)).partitionBy(p)
+
+    val rddJoinCache = cacheStation.join(cacheWeather).cache() // non richiede di fare shuffle
+    val maxTemp = rddJoinCache.map()
+
+    // Il filter per country avremmo potuto farlo prima del keyBy? Sì, per ridurre i dati
+
   }
 
   /**
@@ -178,13 +199,13 @@ object Exercise extends App {
     val rddS = rddStation
       .keyBy(x => x.usaf + x.wban)
       .partitionBy(new HashPartitioner(8))
-      .cache()
+      .cache() // utiliz tante volte
 
     // Collect to enforce caching
     rddW.collect
     rddS.collect
 
-    // Is it better to simply join the two RDDs..
+    // Is it better to simply join the two RDDs..- join tra i
     rddW
       .join(rddS)
       .map({case(k,v)=>(v._2.name,v._1.temperature)})
